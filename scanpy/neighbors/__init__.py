@@ -145,44 +145,6 @@ def _rp_forest_generate(rp_forest_dict: RPForestDict) -> Generator[FlatTree, Non
     yield FlatTree(*tree)
 
 
-def neighbors_update(adata, adata_new, k=10, queue_size=5, random_state=0):
-    # only with use_rep='X' for now
-    from umap.nndescent import make_initialisations, make_initialized_nnd_search, initialise_search
-    from umap.umap_ import INT32_MAX, INT32_MIN
-    from umap.utils import deheap_sort
-    import umap.distances as dist
-
-    if 'metric_kwds' in adata.uns['neighbors']['params']:
-        dist_args = tuple(adata.uns['neighbors']['params']['metric_kwds'].values())
-    else:
-        dist_args = ()
-    dist_func = dist.named_distances[adata.uns['neighbors']['params']['metric']]
-
-    random_init, tree_init = make_initialisations(dist_func, dist_args)
-    search = make_initialized_nnd_search(dist_func, dist_args)
-
-    search_graph = adata.uns['neighbors']['distances'].copy()
-    search_graph.data = (search_graph.data > 0).astype(np.int8)
-    search_graph = search_graph.maximum(search_graph.transpose())
-    # prune it?
-
-    random_state = check_random_state(random_state)
-    rng_state = random_state.randint(INT32_MIN, INT32_MAX, 3).astype(np.int64)
-
-    if 'rp_forest' in adata.uns['neighbors']:
-        rp_forest = _rp_forest_generate(adata.uns['neighbors']['rp_forest'])
-    else:
-        rp_forest = None
-    train = adata.X
-    test = adata_new.X
-
-    init = initialise_search(rp_forest, train, test, int(k * queue_size), random_init, tree_init, rng_state)
-    result = search(train, search_graph.indptr, search_graph.indices, init, test)
-
-    indices, dists = deheap_sort(result)
-    return indices[:, :k], dists[:, :k]
-
-
 def compute_neighbors_umap(
     X: Union[np.ndarray, csr_matrix],
     n_neighbors: int,

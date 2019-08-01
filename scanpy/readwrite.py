@@ -720,7 +720,7 @@ def download(url: str, path: Path):
     from tqdm import tqdm
     from urllib.request import urlretrieve
 
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with tqdm(unit='B', unit_scale=True, miniters=1, desc=path.name) as t:
         def update_to(b=1, bsize=1, tsize=None):
             if tsize is not None:

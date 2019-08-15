@@ -1,10 +1,11 @@
+import numpy as np
+from pandas.api.types import is_numeric_dtype
+from sklearn.utils import check_random_state, check_array
+
 from ._utils import get_init_pos_from_paga, choose_representation
 from .._settings import settings
 from .. import logging as logg
-from ..logging import (
-    _settings_verbosity_greater_or_equal_than,
-    _VERBOSITY_LEVELS_FROM_STRINGS,
-)
+
 
 def umap(
     adata,
@@ -100,10 +101,10 @@ def umap(
     if 'neighbors' not in adata.uns:
         raise ValueError(
             'Did not find \'neighbors/connectivities\'. Run `sc.pp.neighbors` first.')
-    logg.info('computing UMAP', r=True)
+    start = logg.info('computing UMAP')
     if ('params' not in adata.uns['neighbors']
         or adata.uns['neighbors']['params']['method'] != 'umap'):
-        logg.warn('neighbors/connectivities have not been computed using umap')
+        logg.warning('neighbors/connectivities have not been computed using umap')
     from umap.umap_ import find_ab_params, simplicial_set_embedding
     if a is None or b is None:
         a, b = find_ab_params(spread, min_dist)
@@ -111,16 +112,17 @@ def umap(
         a = a
         b = b
     adata.uns['umap'] = {'params':{'a': a, 'b': b}}
-    if init_pos in adata.obsm.keys():
+    if isinstance(init_pos, str) and init_pos in adata.obsm.keys():
         init_coords = adata.obsm[init_pos]
-    elif init_pos == 'paga':
-        init_coords = get_init_pos_from_paga(adata, random_state=random_state).astype(adata.X.dtype)
+    elif isinstance(init_pos, str) and init_pos == 'paga':
+        init_coords = get_init_pos_from_paga(adata, random_state=random_state)
     else:
-        init_coords = init_pos
-    from sklearn.utils import check_random_state
+        init_coords = init_pos  # Let umap handle it
+    if hasattr(init_coords, "dtype"):
+        init_coords = check_array(init_coords, dtype=np.float32, accept_sparse=False)
+
     random_state = check_random_state(random_state)
     n_epochs = 0 if maxiter is None else maxiter
-    verbosity = _VERBOSITY_LEVELS_FROM_STRINGS.get(settings.verbosity, settings.verbosity)
     neigh_params = adata.uns['neighbors']['params']
     X = choose_representation(
         adata, neigh_params.get('use_rep', None), neigh_params.get('n_pcs', None), silent=True)
@@ -140,9 +142,15 @@ def umap(
         random_state,
         neigh_params.get('metric', 'euclidean'),
         neigh_params.get('metric_kwds', {}),
-        verbose=max(0, verbosity-3))
+        verbose=settings.verbosity > 3,
+    )
     adata.obsm['X_umap'] = X_umap  # annotate samples with UMAP coordinates
-    logg.info('    finished', time=True, end=' ' if _settings_verbosity_greater_or_equal_than(3) else '\n')
-    logg.hint('added\n'
-              '    \'X_umap\', UMAP coordinates (adata.obsm)')
+    logg.info(
+        '    finished',
+        time=start,
+        deep=(
+            'added\n'
+            "    'X_umap', UMAP coordinates (adata.obsm)"
+        ),
+    )
     return adata if copy else None

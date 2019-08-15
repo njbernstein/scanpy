@@ -4,7 +4,6 @@
 are captured here and accessed through the standard function call sc.pl.
 """
 
-import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.sparse import issparse
@@ -34,7 +33,7 @@ def correlation_matrix(adata,groupby=None ,group=None, corr_matrix=None, annotat
                 If specified, looks in data annotation for this key.
 
         """
-
+    import seaborn as sns  # Slow import, only import if called
     # TODO: At the moment, noly works for int identifiers
 
     if corr_matrix is None:
@@ -279,7 +278,7 @@ def _zero_inflation_estimate(adata, mask, model='rough'):
     # Method ZINB will be implemented soon
     if model not in {'rough', 'zinb'}:
         model = 'rough'
-        logg.warn('Model should be either rough or zinb (zero-inflated negative binomial)')
+        logg.warning('Model should be either rough or zinb (zero-inflated negative binomial)')
     if adata.X.shape is int:
         X = adata.X[mask]
     else:
@@ -302,7 +301,7 @@ def _tail_mean_estimate(adata, mask, model='rough'):
     # Method ZINB will be implemented soon
     if model not in {'rough', 'zinb'}:
         model = 'rough'
-        logg.warn('Model should be either rough or zinb (zero-inflated negative binomial)')
+        logg.warning('Model should be either rough or zinb (zero-inflated negative binomial)')
     X = adata.X[mask, :]
     n_cells = X.shape[0]
     n_genes = X.shape[1]
@@ -333,7 +332,7 @@ def _tail_var_estimate(adata, mask, model='rough'):
     # Method ZINB will be implemented soon
     if model not in {'rough', 'zinb'}:
         model = 'rough'
-        logg.warn('Model should be either rough or zinb (zero-inflated negative binomial)')
+        logg.warning('Model should be either rough or zinb (zero-inflated negative binomial)')
     X = adata.X[mask, :]
     n_cells = X.shape[0]
     n_genes = X.shape[1]

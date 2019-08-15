@@ -14,8 +14,11 @@ Import Scanpy as::
    Previously, both core and external functionality were available through :mod:`scanpy.api` (deprecated since 1.3.7).
 
 
-Preprocessing: PP
-------------------
+Preprocessing: `pp`
+-------------------
+
+.. module:: scanpy.pp
+.. currentmodule:: scanpy
 
 Filtering of highly-variable genes, batch-effect correction, per-cell normalization, preprocessing recipes.
 
@@ -71,8 +74,11 @@ Neighbors
    pp.neighbors
 
 
-Tools: TL
-----------
+Tools: `tl`
+-----------
+
+.. module:: scanpy.tl
+.. currentmodule:: scanpy
 
 Any transformation of the data matrix that is not *preprocessing*. In contrast to a *preprocessing* function, a *tool* usually adds an easily interpretable annotation to the data matrix, which can then be visualized with a corresponding plotting function.
 
@@ -99,7 +105,6 @@ Clustering and trajectory inference
    tl.dendrogram
    tl.dpt
    tl.paga
-
 
 Marker genes
 ~~~~~~~~~~~~
@@ -129,8 +134,11 @@ Simulations
    tl.sim
 
 
-Plotting: PL
-------------
+Plotting: `pl`
+--------------
+
+.. module:: scanpy.pl
+.. currentmodule:: scanpy
 
 The plotting module :mod:`scanpy.plotting` largely parallels the ``tl.*`` and a few of the ``pp.*`` functions.
 For most tools and for some preprocessing functions, you'll find a plotting function with the same name.
@@ -145,7 +153,7 @@ Reading
 -------
 
 .. note::
-   For reading annotation use :ref:`pandas.read_… <pandas:/io.rst#io-tools-text-csv-hdf5>`
+   For reading annotation use :ref:`pandas.read_… <pandas:io>`
    and add it to your :class:`anndata.AnnData` object. The following read functions are
    intended for the numeric data in the data matrix `X`.
 
@@ -177,6 +185,25 @@ Read other formats using functions borrowed from :mod:`anndata`
    read_mtx
    read_text
    read_umi_tools
+
+
+.. _module-get:
+
+Get object from `AnnData`: `get`
+--------------------------------
+
+.. module:: scanpy.get
+.. currentmodule:: scanpy
+
+The module `sc.get` provides convenience functions for getting values back in
+useful formats.
+
+.. autosummary::
+   :toctree:
+
+   get.obs_df
+   get.var_df
+   get.rank_genes_groups_df
 
 
 Queries
@@ -258,6 +285,9 @@ Print versions of packages that might influence numerical results.
 Datasets
 --------
 
+.. module:: scanpy.datasets
+.. currentmodule:: scanpy
+
 .. autosummary::
    :toctree: .
 
@@ -278,7 +308,6 @@ Further modules
 .. autosummary::
    :toctree: .
 
-   external
    api
    plotting
 

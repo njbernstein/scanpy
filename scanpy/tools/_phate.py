@@ -3,7 +3,6 @@
 
 from .._settings import settings
 from .. import logging as logg
-from ..logging import _settings_verbosity_greater_or_equal_than
 
 
 def phate(
@@ -82,7 +81,7 @@ def phate(
     random_state : `int`, `numpy.RandomState` or `None`, optional (default: `None`)
         Random seed. Defaults to the global `numpy` random number generator
     verbose : `bool`, `int` or `None`, optional (default: `sc.settings.verbosity`)
-        If `True` or an integer `>= 2`, print status messages.
+        If `True` or an `int`/`Verbosity` ≥ 2/`hint`, print status messages.
         If `None`, `sc.settings.verbosity` is used.
     copy : `bool` (default: `False`)
         Return a copy instead of writing to `adata`.
@@ -110,11 +109,10 @@ def phate(
     (2000, 2)
     >>> sc.pl.phate(adata)
     """
-    logg.info('computing PHATE', r=True)
+    start = logg.info('computing PHATE')
     adata = adata.copy() if copy else adata
-    verbose = settings.verbosity if verbose is None else verbose
-    if isinstance(settings.verbosity, (str, int)):
-        verbose = _settings_verbosity_greater_or_equal_than(2)
+    verbosity = settings.verbosity if verbose is None else verbose
+    verbose = verbosity if isinstance(verbosity, bool) else verbosity >= 2
     n_jobs = settings.n_jobs if n_jobs is None else n_jobs
     try:
         import phate
@@ -138,10 +136,14 @@ def phate(
         verbose=verbose,
         **kwargs
     ).fit_transform(adata)
-    logg.info('    finished', time=True,
-              end=' ' if _settings_verbosity_greater_or_equal_than(3) else '\n')
     # update AnnData instance
     adata.obsm['X_phate'] = X_phate  # annotate samples with PHATE coordinates
-    logg.hint('added\n'
-              '    \'X_phate\', PHATE coordinates (adata.obsm)')
+    logg.info(
+        '    finished',
+        time=start,
+        deep=(
+            'added\n'
+            "    'X_phate', PHATE coordinates (adata.obsm)"
+        ),
+    )
     return adata if copy else None

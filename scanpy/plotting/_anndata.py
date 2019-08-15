@@ -10,8 +10,9 @@ from matplotlib import rcParams
 from matplotlib import gridspec
 from matplotlib import patheffects
 from matplotlib.colors import is_color_like
-import seaborn as sns
 
+
+from .. import get
 from .._settings import settings
 from .. import logging as logg
 from . import _utils as utils
@@ -33,7 +34,7 @@ def scatter(
         y=None,
         color=None,
         use_raw=None,
-        layers='X',
+        layers=None,
         sort_order=True,
         alpha=None,
         basis=None,
@@ -69,8 +70,9 @@ def scatter(
     y : `str` or `None`
         y coordinate.
     color : string or list of strings, optional (default: `None`)
-        Keys for annotations of observations/cells or variables/genes, e.g.,
-        `'ann1'` or `['ann1', 'ann2']`.
+        Keys for annotations of observations/cells or variables/genes,
+        or a hex color specification, e.g.,
+        `'ann1'`, `'#fe57a1'`, or `['ann1', 'ann2']`.
     use_raw : `bool`, optional (default: `None`)
         Use `raw` attribute of `adata` if present.
     layers : `str` or tuple of strings, optional (default: `X`)
@@ -253,7 +255,7 @@ def _scatter_obs(
         y=None,
         color=None,
         use_raw=None,
-        layers='X',
+        layers=None,
         sort_order=True,
         alpha=None,
         basis=None,
@@ -279,20 +281,19 @@ def _scatter_obs(
     from scipy.sparse import issparse
     if use_raw is None and adata.raw is not None: use_raw = True
 
-    # process layers
-    if layers is None:
-        layers = 'X'
-    if isinstance(layers, str) and (layers == 'X' or layers in adata.layers.keys()):
+    # Process layers
+    if (layers is None or layers == 'X' or layers in adata.layers.keys()):
         layers = (layers, layers, layers)
     elif isinstance(layers, (tuple, list)) and len(layers) == 3:
+        layers = tuple(layers)
         for layer in layers:
-            if layer not in adata.layers.keys() and layer != 'X':
+            if layer not in adata.layers.keys() and (layer != 'X' or layer is not None):
                 raise ValueError(
-                    '`layers` should have elements that are either \'X\' or in adata.layers.keys().')
+                    '`layers` should have elements that are either None or in adata.layers.keys().')
     else:
-        raise ValueError('`layers` should be a string or a list/tuple of length 3.')
-    if use_raw and (layers != ('X', 'X', 'X') or layers != ['X', 'X', 'X']):
-        ValueError('`use_raw` must be `False` if layers other than \'X\' are used.')
+        raise ValueError(f"`layers` should be a string or a list/tuple of length 3, had value '{layers}'")
+    if use_raw and (layers != ('X', 'X', 'X') or layers is not (None, None, None)):
+        ValueError('`use_raw` must be `False` if layers are used.')
 
     if legend_loc not in VALID_LEGENDLOCS:
         raise ValueError(
@@ -315,13 +316,20 @@ def _scatter_obs(
             raise KeyError('compute coordinates using visualization tool {} first'
                            .format(basis))
     elif x is not None and y is not None:
-        x_arr = adata._get_obs_array(x, use_raw=use_raw, layer=layers[0])
-        y_arr = adata._get_obs_array(y, use_raw=use_raw, layer=layers[1])
+        if use_raw:
+            if x in adata.obs.columns:
+                x_arr = adata.obs_vector(x)
+            else:
+                x_arr = adata.raw.obs_vector(x)
+            if y in adata.obs.columns:
+                y_arr = adata.obs_vector(y)
+            else:
+                y_arr = adata.raw.obs_vector(y)
+        else:
+            x_arr = adata.obs_vector(x, layer=layers[0])
+            y_arr = adata.obs_vector(y, layer=layers[1])
 
-        x_arr = x_arr.toarray().flatten() if issparse(x_arr) else x_arr
-        y_arr = y_arr.toarray().flatten() if issparse(y_arr) else y_arr
-
-        Y = np.c_[x_arr[:, None], y_arr[:, None]]
+        Y = np.c_[x_arr, y_arr]
     else:
         raise ValueError('Either provide a `basis` or `x` and `y`.')
 
@@ -377,10 +385,9 @@ def _scatter_obs(
         elif (use_raw
               and adata.raw is not None
               and key in adata.raw.var_names):
-            c = adata.raw[:, key].X
+            c = adata.raw.obs_vector(key)
         elif key in adata.var_names:
-            c = adata[:, key].X if layers[2] == 'X' else adata[:, key].layers[layers[2]]
-            c = c.toarray().flatten() if issparse(c) else c
+            c = adata.raw.obs_vector(key, layer=layers[2])
         elif is_color_like(key):  # a flat color
             c = key
             colorbar = False
@@ -482,7 +489,7 @@ def _scatter_obs(
             utils._tmp_cluster_pos = all_pos
             if legend_loc == 'on data export':
                 filename = settings.writedir / 'pos.csv'
-                logg.warn(f'exporting label positions to {filename}')
+                logg.warning(f'exporting label positions to {filename}')
                 settings.writedir.mkdir(parents=True, exist_ok=True)
                 np.savetxt(filename, all_pos, delimiter=',')
         elif legend_loc == 'right margin':
@@ -621,27 +628,14 @@ def violin(adata, keys, groupby=None, log=False, use_raw=None, stripplot=True, j
     -------
     A :class:`~matplotlib.axes.Axes` object if `ax` is `None` else `None`.
     """
+    import seaborn as sns  # Slow import, only import if called
     sanitize_anndata(adata)
     if use_raw is None and adata.raw is not None: use_raw = True
     if isinstance(keys, str): keys = [keys]
-    obs_keys = False
-    for key in keys:
-        if key in adata.obs_keys(): obs_keys = True
-        if obs_keys and key not in set(adata.obs_keys()):
-            raise ValueError(
-                'Either use observation keys or variable names, but do not mix. '
-                'Did not find {} in adata.obs_keys().'.format(key))
-    if obs_keys:
-        obs_df = adata.obs
+    if groupby is not None:
+        obs_df = get.obs_df(adata, keys=[groupby] + keys, use_raw=use_raw)
     else:
-        if groupby is None: obs_df = pd.DataFrame()
-        else: obs_df = pd.DataFrame(adata.obs[groupby])
-        for key in keys:
-            if adata.raw is not None and use_raw:
-                X_col = adata.raw[:, key].X
-            else:
-                X_col = adata[:, key].X
-            obs_df[key] = X_col
+        obs_df = get.obs_df(adata, keys=keys, use_raw=use_raw)
     if groupby is None:
         obs_tidy = pd.melt(obs_df, value_vars=keys)
         x = 'variable'
@@ -745,6 +739,7 @@ def clustermap(
     >>> adata = sc.datasets.krumsiek11()
     >>> sc.pl.clustermap(adata, obs_keys='cell_type')
     """
+    import seaborn as sns  # Slow import, only import if called
     if not isinstance(obs_keys, (str, type(None))):
         raise ValueError('Currently, only a single key is supported.')
     sanitize_anndata(adata)
@@ -783,9 +778,6 @@ def stacked_violin(adata, var_names, groupby=None, log=False, use_raw=None, num_
     stacked on top of each other. Useful to visualize gene expression per cluster.
 
     Wraps `seaborn.violinplot` for :class:`~anndata.AnnData`.
-
-    See also :func:`~scanpy.pl.rank_genes_groups_stacked_violin` to plot marker genes
-    identified using the :func:`~scanpy.tl.rank_genes_groups` function.
 
     Parameters
     ----------
@@ -832,9 +824,15 @@ def stacked_violin(adata, var_names, groupby=None, log=False, use_raw=None, num_
     ...                      groupby='bulk_labels', dendrogram=True)
 
     Using var_names as dict:
+
     >>> markers = {{'T-cell': 'CD3D', 'B-cell': 'CD79A', 'myeloid': 'CST3'}}
     >>> sc.pl.stacked_violin(adata, markers, groupby='bulk_labels', dendrogram=True)
+
+    See also
+    --------
+    rank_genes_groups_stacked_violin: to plot marker genes identified using the :func:`~scanpy.tl.rank_genes_groups` function.
     """
+    import seaborn as sns  # Slow import, only import if called
     if use_raw is None and adata.raw is not None: use_raw = True
     var_names, var_group_labels, var_group_positions = _check_var_names_type(var_names,
                                                                              var_group_labels, var_group_positions)
@@ -851,7 +849,7 @@ def stacked_violin(adata, var_names, groupby=None, log=False, use_raw=None, num_
     elif standard_scale is None:
         pass
     else:
-        logg.warn('Unknown type for standard_scale, ignored')
+        logg.warning('Unknown type for standard_scale, ignored')
 
     if 'color' in kwds:
         row_palette = kwds['color']
@@ -1098,9 +1096,6 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     annotation is turned into a categorical by binning the data into the number
     specified in `num_categories`.
 
-    See also :func:`~scanpy.pl.rank_genes_groups_heatmap` to plot marker genes
-    identified using the :func:`~scanpy.tl.rank_genes_groups` function.
-
     Parameters
     ----------
     {common_plot_args}
@@ -1127,9 +1122,13 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     ...               groupby='bulk_labels', dendrogram=True, swap_axes=True)
 
     Using var_names as dict:
+
     >>> markers = {{'T-cell': 'CD3D', 'B-cell': 'CD79A', 'myeloid': 'CST3'}}
     >>> sc.pl.heatmap(adata, markers, groupby='bulk_labels', dendrogram=True)
 
+    See also
+    --------
+    rank_genes_groups_heatmap: to plot marker genes identified using the :func:`~scanpy.tl.rank_genes_groups` function.
     """
     if use_raw is None and adata.raw is not None: use_raw = True
 
@@ -1148,7 +1147,7 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     elif standard_scale is None:
         pass
     else:
-        logg.warn('Unknown type for standard_scale, ignored')
+        logg.warning('Unknown type for standard_scale, ignored')
 
     if groupby is None or len(categories) <= 1:
         categorical = False
@@ -1188,8 +1187,10 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
             show_gene_labels = True
         else:
             show_gene_labels = False
-            logg.warn('Gene labels are not shown when more than 50 genes are visualized. To show '
-                      'gene labels set `show_gene_labels=True`')
+            logg.warning(
+                'Gene labels are not shown when more than 50 genes are visualized. '
+                'To show gene labels set `show_gene_labels=True`'
+            )
     if categorical:
         obs_tidy = obs_tidy.sort_index()
 
@@ -1254,8 +1255,9 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
                                                                           colors=groupby_colors, orientation='left')
 
             # add lines to main heatmap
-            line_positions = np.cumsum(obs_tidy.index.value_counts(sort=False))[:-1]
-            heatmap_ax.hlines(line_positions, -1, len(var_names) + 1, lw=0.5)
+            line_positions = np.cumsum(obs_tidy.index.value_counts(sort=False))[:-1] - 0.5
+            heatmap_ax.hlines(line_positions, -0.73, len(var_names) - 0.5, lw=0.6,
+                              zorder=10, clip_on=False)
 
         if dendrogram:
             dendro_ax = fig.add_subplot(axs[1, 2], sharey=heatmap_ax)
@@ -1325,8 +1327,9 @@ def heatmap(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
             ticks, labels, groupby_cmap, norm = _plot_categories_as_colorblocks(groupby_ax, obs_tidy, colors=groupby_colors,
                                                                           orientation='bottom')
             # add lines to main heatmap
-            line_positions = np.cumsum(obs_tidy.index.value_counts(sort=False))[:-1]
-            heatmap_ax.vlines(line_positions, -1, len(var_names) + 1, lw=0.5)
+            line_positions = np.cumsum(obs_tidy.index.value_counts(sort=False))[:-1] - 0.5
+            heatmap_ax.vlines(line_positions, -0.5, len(var_names) + .35, lw=0.6,
+                              zorder=10, clip_on=False)
 
         if dendrogram:
             dendro_ax = fig.add_subplot(axs[0, 0], sharex=heatmap_ax)
@@ -1372,9 +1375,6 @@ def dotplot(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     An example of dotplot usage is to visualize, for multiple marker genes,
     the mean value and the percentage of cells expressing the gene accross multiple clusters.
 
-    See also :func:`~scanpy.pl.rank_genes_groups_dotplot` to plot marker genes
-    identified using the :func:`~scanpy.tl.rank_genes_groups` function.
-
     Parameters
     ----------
     {common_plot_args}
@@ -1416,8 +1416,13 @@ def dotplot(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     ...               groupby='bulk_labels', dendrogram=True)
 
     Using var_names as dict:
+
     >>> markers = {{'T-cell': 'CD3D', 'B-cell': 'CD79A', 'myeloid': 'CST3'}}
     >>> sc.pl.dotplot(adata, markers, groupby='bulk_labels', dendrogram=True)
+
+    See also
+    --------
+    rank_genes_groups_dotplot: to plot marker genes identified using the :func:`~scanpy.tl.rank_genes_groups` function.
     """
     if use_raw is None and adata.raw is not None: use_raw = True
     var_names, var_group_labels, var_group_positions = _check_var_names_type(var_names,
@@ -1453,7 +1458,7 @@ def dotplot(adata, var_names, groupby=None, use_raw=None, log=False, num_categor
     elif standard_scale is None:
         pass
     else:
-        logg.warn('Unknown type for standard_scale, ignored')
+        logg.warning('Unknown type for standard_scale, ignored')
 
     dendro_width = 0.8 if dendrogram else 0
     colorbar_width = 0.2
@@ -1671,9 +1676,6 @@ def matrixplot(adata, var_names, groupby=None, use_raw=None, log=False, num_cate
     If groupby is not given, the matrixplot assumes that all data belongs to a single
     category.
 
-    See also :func:`~scanpy.pl.rank_genes_groups_matrixplot` to plot marker genes
-    identified using the :func:`~scanpy.tl.rank_genes_groups` function.
-
     Parameters
     ----------
     {common_plot_args}
@@ -1695,9 +1697,13 @@ def matrixplot(adata, var_names, groupby=None, use_raw=None, log=False, num_cate
     ... groupby='bulk_labels', dendrogram=True)
 
     Using var_names as dict:
+
     >>> markers = {{'T-cell': 'CD3D', 'B-cell': 'CD79A', 'myeloid': 'CST3'}}
     >>> sc.pl.matrixplot(adata, markers, groupby='bulk_labels', dendrogram=True)
 
+    See also
+    --------
+    rank_genes_groups_matrixplot: to plot marker genes identified using the :func:`~scanpy.tl.rank_genes_groups` function.
     """
 
     if use_raw is None and adata.raw is not None: use_raw = True
@@ -1721,7 +1727,7 @@ def matrixplot(adata, var_names, groupby=None, use_raw=None, log=False, num_cate
     elif standard_scale is None:
         pass
     else:
-        logg.warn('Unknown type for standard_scale, ignored')
+        logg.warning('Unknown type for standard_scale, ignored')
 
     if dendrogram:
         dendro_data = _reorder_categories_after_dendrogram(adata, groupby, dendrogram,
@@ -1881,9 +1887,6 @@ def tracksplot(adata, var_names, groupby, use_raw=None, log=False,
     `groupby` is required to sort and order the values using the respective group
     and should be a categorical value.
 
-    See also :func:`~scanpy.pl.rank_genes_groups_tracksplot` to plot marker genes
-    identified using the :func:`~scanpy.tl.rank_genes_groups` function.
-
     Parameters
     ----------
     {common_plot_args}
@@ -1902,8 +1905,13 @@ def tracksplot(adata, var_names, groupby, use_raw=None, log=False,
     ...                  'bulk_labels', dendrogram=True)
 
     Using var_names as dict:
+
     >>> markers = {{'T-cell': 'CD3D', 'B-cell': 'CD79A', 'myeloid': 'CST3'}}
     >>> sc.pl.heatmap(adata, markers, groupby='bulk_labels', dendrogram=True)
+
+    See also
+    --------
+    rank_genes_groups_tracksplot: to plot marker genes identified using the :func:`~scanpy.tl.rank_genes_groups` function.
     """
 
     if groupby not in adata.obs_keys() or adata.obs[groupby].dtype.name != 'category':
@@ -2097,7 +2105,7 @@ def correlation_matrix(adata, groupby, show_correlation_numbers=False, dendrogra
     dendrogram: `bool` or `str`, optional (default: `False`)
         If True or a valid dendrogram key, a dendrogram based on the hierarchical clustering
         between the `groupby` categories is added. The dendrogram information is computed
-        using :ref:`scanpy.tl.dendrogram`. If `tl.dendrogram` has not been called previously
+        using :func:`scanpy.tl.dendrogram`. If `tl.dendrogram` has not been called previously
         the function is called with default parameters.
     figsize : (`float`, `float`), optional (default: `None`)
         By default a figure size that aims to produce a squared correlation matrix plot is used.
@@ -2267,7 +2275,7 @@ def _prepare_dataframe(adata, var_names, groupby=None, use_raw=None, log=False,
         translated_var_names = []
         for symbol in var_names:
             if symbol not in adata.var[gene_symbols].values:
-                logg.error("Gene symbol {!r} not found in given gene_symbols column: {!r}".format(symbol, gene_symbols))
+                logg.error(f"Gene symbol {symbol!r} not found in given gene_symbols column: {gene_symbols!r}")
                 return
             translated_var_names.append(adata.var[adata.var[gene_symbols] == symbol].index[0])
         symbols = var_names
@@ -2490,11 +2498,12 @@ def _reorder_categories_after_dendrogram(adata, groupby, dendrogram,
             var_group_labels = labels_ordered
             var_group_positions = positions_ordered
         else:
-            logg.warn("Groups are not reordered because the `groupby` categories "
-                      "and the `var_group_labels` are different.\n"
-                      "categories: {}\nvar_group_labels: {}".format(
-                        _format_first_three_categories(categories),
-                        _format_first_three_categories(var_group_labels)))
+            logg.warning(
+                "Groups are not reordered because the `groupby` categories "
+                "and the `var_group_labels` are different.\n"
+                f"categories: {_format_first_three_categories(categories)}\n"
+                f"var_group_labels: {_format_first_three_categories(var_group_labels)}"
+            )
     else:
         var_names_idx_ordered = None
 
@@ -2521,9 +2530,11 @@ def _get_dendrogram_key(adata, dendrogram_key, groupby):
 
     if dendrogram_key not in adata.uns:
         from ..tools._dendrogram import dendrogram
-        logg.warn("dendrogram data not found (using key={}). Running `sc.tl.dendrogram` "
-                  "with default parameters. For fine tuning it is recommended to run `sc.tl.dendrogram` "
-                  "independently.".format(dendrogram_key))
+        logg.warning(
+            f"dendrogram data not found (using key={dendrogram_key}). Running `sc.tl.dendrogram` "
+            "with default parameters. For fine tuning it is recommended to run `sc.tl.dendrogram` "
+            "independently."
+        )
         dendrogram(adata, groupby, key_added=dendrogram_key)
 
     if 'dendrogram_info' not in adata.uns[dendrogram_key]:
@@ -2596,7 +2607,7 @@ def _plot_dendrogram(dendro_ax, adata, groupby, dendrogram_key=None, orientation
     orig_ticks = np.arange(5, len(leaves) * 10 + 5, 10).astype(float)
     # check that ticks has the same length as orig_ticks
     if ticks is not None and len(orig_ticks) != len(ticks):
-        logg.warn("ticks argument does not have the same size as orig_ticks. The argument will be ignored")
+        logg.warning("ticks argument does not have the same size as orig_ticks. The argument will be ignored")
         ticks = None
 
     for xs, ys in zip(icoord, dcoord):
@@ -2770,8 +2781,10 @@ def _check_var_names_type(var_names, var_group_labels, var_group_positions):
 
     if isinstance(var_names, Mapping):
         if var_group_labels is not None or var_group_positions is not None:
-            logg.warn("`var_names` is a dictionary. This will reset the current value of "
-                      "`var_group_labels` and `var_group_positions`.")
+            logg.warning(
+                "`var_names` is a dictionary. This will reset the current value of "
+                "`var_group_labels` and `var_group_positions`."
+            )
         var_group_labels = []
         _var_names = []
         var_group_positions = []

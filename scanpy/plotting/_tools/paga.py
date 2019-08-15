@@ -5,7 +5,6 @@ import warnings
 from collections import Iterable
 from typing import Optional, Union, List
 
-import networkx as nx
 from pandas.api.types import is_categorical_dtype
 from matplotlib import pyplot as pl, rcParams, ticker
 from matplotlib.axes import Axes
@@ -131,6 +130,8 @@ def paga_compare(
 
 
 def _compute_pos(adjacency_solid, layout=None, random_state=0, init_pos=None, adj_tree=None, root=0, layout_kwds={}):
+    import networkx as nx
+
     nx_g_solid = nx.Graph(adjacency_solid)
     if layout is None:
         layout = 'fr'
@@ -138,9 +139,11 @@ def _compute_pos(adjacency_solid, layout=None, random_state=0, init_pos=None, ad
         try:
             from fa2 import ForceAtlas2
         except:
-            logg.warn('Package \'fa2\' is not installed, falling back to layout \'fr\'.'
-                      'To use the faster and better ForceAtlas2 layout, '
-                      'install package \'fa2\' (`pip install fa2`).')
+            logg.warning(
+                "Package 'fa2' is not installed, falling back to layout 'fr'."
+                'To use the faster and better ForceAtlas2 layout, '
+                "install package 'fa2' (`pip install fa2`)."
+            )
             layout = 'fr'
     if layout == 'fa':
         np.random.seed(random_state)
@@ -375,6 +378,8 @@ def paga(
     mirrors coordinates along the x axis... that is, you should increase the
     `maxiter` parameter by 1 if the layout is flipped.
 
+    .. currentmodule:: scanpy
+
     See also
     --------
     tl.paga
@@ -383,7 +388,7 @@ def paga(
     """
     if groups is not None:  # backwards compat
         labels = groups
-        logg.warn('`groups` is deprecated in `pl.paga`: use `labels` instead')
+        logg.warning('`groups` is deprecated in `pl.paga`: use `labels` instead')
     if colors is None:
         colors = color
     # colors is a list that contains no lists
@@ -502,7 +507,7 @@ def paga(
                                  cax=ax_cb)
     if add_pos:
         adata.uns['paga']['pos'] = pos
-        logg.hint('added \'pos\', the PAGA positions (adata.uns[\'paga\'])')
+        logg.hint("added 'pos', the PAGA positions (adata.uns['paga'])")
     if plot:
         utils.savefig_or_show('paga', show=show, save=save)
         if len(colors) == 1 and isinstance(axs, list): axs = axs[0]
@@ -541,6 +546,8 @@ def _paga_graph(
         cb_kwds={},
         single_component=False,
         arrowsize=30):
+    import networkx as nx
+
     node_labels = labels  # rename for clarity
     if (node_labels is not None
         and isinstance(node_labels, str)
@@ -654,10 +661,11 @@ def _paga_graph(
         adjacency_solid = adjacency_solid.tocsc()[:, labels == largest_component]
         colors = np.array(colors)[labels == largest_component]
         node_labels = np.array(node_labels)[labels == largest_component]
+        cats_dropped = adata.obs[groups_key].cat.categories[labels != largest_component].tolist()
         logg.info(
             'Restricting graph to largest connected component by dropping categories\n'
-            '{}'.format(
-                adata.obs[groups_key].cat.categories[labels != largest_component].tolist()))
+            f'{cats_dropped}'
+        )
         nx_g_solid = nx.Graph(adjacency_solid)
         if dashed_edges is not None:
             raise ValueError('`single_component` only if `dashed_edges` is `None`.')
@@ -708,7 +716,7 @@ def _paga_graph(
                              'y': 1000*pos[count][1],
                              'z': 0}}
         filename = settings.writedir / 'paga_graph.gexf'
-        logg.warn('exporting to', filename)
+        logg.warning(f'exporting to {filename}')
         settings.writedir.mkdir(parents=True, exist_ok=True)
         nx.write_gexf(nx_g_solid, settings.writedir / 'paga_graph.gexf')
 

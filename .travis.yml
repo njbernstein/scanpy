@@ -3,7 +3,10 @@ language: python
 python:
   - '3.6'
   - '3.7'
-cache: pip
+  #- '3.8-dev' # https://github.com/numpy/numpy/issues/13790
+cache: 
+  - pip
+  - directories: data
 install:
   - pip install docutils sphinx
   - pip install -e .[test,louvain,leiden]
